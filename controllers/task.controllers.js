@@ -46,13 +46,41 @@ taskController.getTasks = async (req, res, next) => {
   //in real project you will getting condition from req then construct the filter object for query
   // empty filter mean get all
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = req.query.limit || 10;
-    const tasks = await Task.find()
-      .sort({ createdAt: -1 })
+    // const allowedFilter = ["name", "status"];
+    let { page, limit, name, status, sort } = req.query;
+    let query = {};
+    if (name) {
+      query.name = { $regex: name, $options: "i" };
+    }
+
+    if (status) {
+      query.status = status;
+    }
+
+    // help sorting by createdAt, updatedAt
+    if (sort && sort.toLowerCase() === "updatedAt".toLowerCase()) {
+      sort = "updatedAt";
+    } else {
+      sort = "createdAt";
+    }
+
+    page = parseInt(page) || 1;
+    limit = parseInt(limit) || 10;
+    //allow title,limit and page query string only
+    // const filterKeys = Object.keys(filterQuery);
+    // filterKeys.forEach((key) => {
+    //   if (!allowedFilter.includes(key)) {
+    //     const exception = new Error(`Query ${key} is not allowed`);
+    //     exception.statusCode = 401;
+    //     throw exception;
+    //   }
+    //   if (!filterQuery[key]) delete filterQuery[key];
+    // });
+    const tasks = await Task.find(query)
+      .sort({ [sort]: -1 })
       .skip((page - 1) * limit)
       .limit(limit);
-    const total = await Task.countDocuments({ isDeleted: false });
+    const total = await Task.countDocuments({ ...query, isDeleted: false });
     return res.status(200).json({
       message: "Get Task List Successfully!",
       tasks,
@@ -109,7 +137,7 @@ taskController.deleteTask = async (req, res, next) => {
   // const targetId = null;
 
   //options allow you to modify query. e.g new true return lastest update of data
-  const options = { new: true };
+  // const options = { new: true };
   // const options = { new: true, runValidators: true };
 
   try {
@@ -119,11 +147,12 @@ taskController.deleteTask = async (req, res, next) => {
     }
 
     //mongoose query
-    const deletedTask = await Task.findByIdAndDelete(
-      id,
-      { isDeleted: true },
-      options
-    );
+    // const deletedTask = await Task.findByIdAndDelete(
+    //   id,
+    //   { isDeleted: true },
+    //   options
+    // );
+    const deletedTask = await Task.findByIdAndDelete(id);
     if (!deletedTask) {
       throw new Error("Task not found!");
     }
@@ -132,9 +161,9 @@ taskController.deleteTask = async (req, res, next) => {
     //   res,
     //   200,
     //   true,
-    //   { car: deletedCar },
+    //   { task: deletedTask },
     //   null,
-    //   "Delete Car Successfully!"
+    //   "Delete Task Successfully!"
     // );
 
     return res
@@ -146,17 +175,20 @@ taskController.deleteTask = async (req, res, next) => {
   }
 };
 
-// Get all tasks of 1 user by id
+// Get all tasks of 1 user by userId
 taskController.getTasksbyUserId = async (req, res, next) => {
   try {
     const { userId } = req.params;
+
     if (!mongoose.isValidObjectId(userId)) {
       throw new Error("Invalid User ID");
     }
 
     // ?
     const tasksByUserId = await Task.find({
-      assignee: mongoose.SchemaTypes.ObjectId(userId),
+      // assignee: mongoose.SchemaTypes.ObjectId(userId),
+      // assignee: new mongoose.Types.ObjectId(userId),
+      assignee: userId,
     });
 
     return res
@@ -167,7 +199,7 @@ taskController.getTasksbyUserId = async (req, res, next) => {
   }
 };
 
-// Get a single task by id
+// Get a single task by id and populate assignee field
 taskController.getTaskbyId = async (req, res, next) => {
   try {
     const { id: taskId } = req.params;
@@ -175,9 +207,17 @@ taskController.getTaskbyId = async (req, res, next) => {
       throw new Error("Invalid Task ID");
     }
 
-    const taskById = await Task.find({
+    // const taskById = await Task.find({
+    //   _id: taskId,
+    // });
+
+    // const taskById = await Task.find({
+    //   _id: taskId,
+    // }).populate("assignee");
+
+    const taskById = await Task.findOne({
       _id: taskId,
-    });
+    }).populate("assignee");
 
     if (taskById) {
       return res
@@ -191,63 +231,118 @@ taskController.getTaskbyId = async (req, res, next) => {
   }
 };
 
-// assign a task to a user
+// assign or unassign a task to a user
+/*
+  {
+    "assign": false,
+    "userId": "64a96646d1d335d4e718beb5"
+  }
+*/
 taskController.assignTask = async (req, res, next) => {
   try {
     const { id: taskId } = req.params;
-    const { userId, assign } = req.body;
+
+    const { userId } = req.body;
+
+    // check if taskID is valid
     if (!mongoose.isValidObjectId(taskId)) {
       throw new Error("Invalid Task ID");
     }
+
+    // check if userId is valid
     if (!mongoose.isValidObjectId(userId)) {
       throw new Error("Invalid User ID");
     }
-    const taskToAssign = await Task.find({ _id: taskId });
+    // const taskToAssign = await Task.find({ _id: taskId });
+    const taskToAssign = await Task.findOne({ _id: taskId });
 
     if (!taskToAssign) {
       return res.status(404).send(`Task with ID ${taskId} not found`);
     }
 
-    if (assign) {
-      // check if the user with userId exists
-      const userToAssignTask = await User.find({ _id: userId });
-      if (!userToAssignTask) {
-        return res.status(404).send(`User with ID ${userId} not found`);
+    // check if the user with userId exists
+    // const userToAssignTask = await User.find({ _id: userId });
+    const userToAssignTask = await User.findOne({ _id: userId });
+    if (!userToAssignTask) {
+      return res.status(404).send(`User with ID ${userId} not found`);
+    }
+
+    if ("assign" in req.body) {
+      const { assign } = req.body;
+      if (!assign) {
+        // unassign
+        if (!taskToAssign.assignee) {
+          return res
+            .status(404)
+            .send(`Task with ${taskId} has not been assigned yet`);
+        } else {
+          await Task.updateOne({ _id: taskId }, { $unset: { assignee: "" } });
+          return res.status(200).send(`Unassign task ${taskId} successfully`);
+        }
+      } else {
+        // check if taskId has been assigned to the userId
+        // taskToAssign.assignee: ObjectId("")
+        if (
+          taskToAssign.assignee &&
+          taskToAssign.assignee.valueOf() === userId
+        ) {
+          return res
+            .status(404)
+            .send(
+              `Task with ${taskId} has already been assigned to the user with ID ${userId}`
+            );
+        }
+        // assign or reassign the task to a new user
+        await Task.updateOne({ _id: taskId }, { $set: { assignee: userId } });
+        return res
+          .status(200)
+          .send(`Assign task ${taskId} to user ${userId} successfully`);
+      }
+    } else {
+      // assign by default
+
+      // check if taskId has been assigned to the userId
+      // taskToAssign.assignee: ObjectId("")
+      if (taskToAssign.assignee && taskToAssign.assignee.valueOf() === userId) {
+        return res
+          .status(404)
+          .send(
+            `Task with ${taskId} has already been assigned to the user with ID ${userId}`
+          );
       }
 
-      taskToAssign.assignee = mongoose.SchemaTypes.ObjectId(userId);
-    } else {
-      taskToAssign.assignee = null;
+      await Task.updateOne({ _id: taskId }, { $set: { assignee: userId } });
+      return res
+        .status(200)
+        .send(`Assign task ${taskId} to user ${userId} successfully`);
     }
-    await taskToAssign.save();
-    return res
-      .status(200)
-      .send(
-        assign
-          ? `Assign task ${taskId} to user ${userId} successfully`
-          : `UnAssign task ${taskId} successfully`
-      );
   } catch (err) {
     next(err);
   }
 };
 
 // unassign a task
-// taskController.unassignTask = async (req, res, next) => {
-//   try {
-//     const { id: taskId } = req.params;
-//     if (!mongoose.isValidObjectId(taskId)) {
-//       throw new Error("Invalid Task ID");
-//     }
+taskController.unassignTask = async (req, res, next) => {
+  try {
+    const { id: taskId } = req.params;
+    if (!mongoose.isValidObjectId(taskId)) {
+      throw new Error("Invalid Task ID");
+    }
 
-//     const taskToUnassign = await Task.find({ _id: taskId });
+    const taskToUnassign = await Task.find({ _id: taskId });
 
-//     // ?
-//     // taskToUnassign.assign
-//   } catch (err) {
-//     next(err);
-//   }
-// };
+    if (!taskToUnassign) {
+      return res.status(404).send(`Task with ID ${taskId} not found`);
+    }
+
+    // ?
+    // taskToUnassign.assignee = null;
+    // await taskToUnassign.update();
+    await Task.updateOne({ _id: taskId }, { $unset: { assignee: "" } });
+  } catch (err) {
+    next(err);
+  }
+};
 
 // update task status
 taskController.editTaskStatus = async (req, res, next) => {

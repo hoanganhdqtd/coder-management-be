@@ -15,6 +15,12 @@ userController.createUser = async (req, res, next) => {
       throw new Error("Missing required info!");
     }
 
+    // check if user's name existed in the collection
+    const nameCount = await User.find({ name }).count();
+    if (nameCount) {
+      throw new Error("User's name existed. Please input new one.");
+    }
+
     // const newUser = await new User({}).save();
     const newUser = await User.create({
       name,

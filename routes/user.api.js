@@ -1,3 +1,6 @@
+const { param, body } = require("express-validator");
+const { ObjectId } = require("mongodb");
+
 const express = require("express");
 const router = express.Router();
 const {
@@ -21,7 +24,12 @@ router.get("/", getUsers);
  * @description create a user
  * @access public
  */
-router.post("/", createUser);
+router.post(
+  "/",
+  body("name").isString().trim().notEmpty(),
+  body("role").isString().trim().notEmpty(),
+  createUser
+);
 
 //Update
 /**
@@ -29,7 +37,11 @@ router.post("/", createUser);
  * @description update a user
  * @access public
  */
-router.put("/:id", editUser);
+router.put(
+  "/:id",
+  param("id").customSanitizer((value) => ObjectId(value)),
+  editUser
+);
 
 //Delete
 /**
@@ -37,7 +49,11 @@ router.put("/:id", editUser);
  * @description delete a user
  * @access public
  */
-router.delete("/:id", deleteUser);
+router.delete(
+  "/:id",
+  param("id").customSanitizer((value) => ObjectId(value)),
+  deleteUser
+);
 
 //export
 module.exports = router;

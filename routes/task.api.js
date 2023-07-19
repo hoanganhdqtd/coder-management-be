@@ -9,6 +9,7 @@ const {
   assignTask,
   unassignTask,
   editTaskStatus,
+  getTasksbyUserId,
 } = require("../controllers/task.controllers");
 
 //Read
@@ -57,7 +58,7 @@ router.get("/:id", getTaskbyId);
  * @description assign a task
  * @access public
  */
-// router.put("/:id", assignTask);
+router.put("/assign/:id", assignTask);
 
 // Unassign a task
 /**
@@ -66,6 +67,14 @@ router.get("/:id", getTaskbyId);
  * @access public
  */
 // router.put("/:id", unassignTask);
+
+// Get tasks by userId
+/**
+ * @route Get api/task
+ * @description get tasks by userId
+ * @access public
+ */
+router.get("/user/:userId", getTasksbyUserId);
 
 //export
 module.exports = router;
